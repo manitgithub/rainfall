@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thailand Rainfall Forecast Dashboard</title>
+    <!-- Modern Thai-compatible font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --primary-bg: #f1f5f9;
+            --surface-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            --header-bg: #1e293b;
+            --header-text: #f8fafc;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans Thai', sans-serif;
+            background-color: var(--primary-bg);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: var(--header-bg);
+            color: var(--header-text);
+            padding: 1rem 1.5rem;
+            box-shadow: var(--shadow-sm);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.25rem;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        .dashboard-container {
+            display: flex;
+            flex: 1;
+            padding: 1.25rem;
+            gap: 1.25rem;
+            height: calc(100vh - 60px);
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* ---------------- Layout & Cards ---------------- */
+        .card {
+            background-color: var(--surface-bg);
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .map-section {
+            flex: 4;
+            position: relative;
+        }
+
+        .chart-section {
+            flex: 5;
+            padding: 1.5rem;
+        }
+
+        /* ---------------- Map Section ---------------- */
+        #map {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            background: #e5e7eb; /* Fallback for map loading */
+        }
+
+        .info.legend {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 14px;
+            border-radius: 8px;
+            box-shadow: var(--shadow-sm);
+            line-height: 1.5;
+            color: var(--text-main);
+            backdrop-filter: blur(4px);
+            border: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+        .info.legend h4 {
+            margin: 0 0 8px 0;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        .info.legend i {
+            width: 16px;
+            height: 16px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.85;
+            border-radius: 3px;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 1.1rem;
+            color: var(--text-main);
+            font-weight: 500;
+            gap: 12px;
+            backdrop-filter: blur(2px);
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--border-color);
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* ---------------- Chart Section ---------------- */
+        .chart-header {
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .chart-header h2 {
+            font-size: 1.35rem;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .chart-header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .chart-container-inner {
+            flex: 1;
+            position: relative;
+            min-height: 0; /* Important for Chart.js inside Flex container */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #empty-state {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+            text-align: center;
+            background: var(--primary-bg);
+            padding: 1.5rem 2.5rem;
+            border-radius: 8px;
+            border: 1px dashed #cbd5e1;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+        
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Responsive */
+        @media (max-width: 992px) {
+            .dashboard-container {
+                flex-direction: column;
+                height: auto;
+                overflow-y: auto;
+            }
+            .map-section {
+                height: 50vh;
+                flex: none;
+            }
+            .chart-section {
+                height: auto;
+                flex: none;
+            }
+        }
+
+        /* ---------------- Data Table Section ---------------- */
+        .data-table-container {
+            flex: 1;
+            margin-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .data-table-container h3 {
+            font-size: 1.15rem;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .table-responsive {
+            overflow-y: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #ffffff;
+            flex: 1;
+            min-height: 200px;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05); /* subtle inner border */
+        }
+
+        #raw-data-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.95rem;
+        }
+
+        #raw-data-table th {
+            background: #f1f5f9;
+            padding: 14px 16px;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 2px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+
+        #raw-data-table th::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -2px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #raw-data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            color: var(--text-main);
+            vertical-align: middle;
+        }
+
+        #raw-data-table tbody tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        #raw-data-table tbody tr:hover {
+            background-color: #f1f5f9;
+            transition: background-color 0.15s ease;
+        }
+        
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .badge-past {
+            background-color: #f1f5f9;
+            color: #64748b;
+        }
+        
+        .badge-future {
+            background-color: #dbeafe;
+            color: #1d4ed8;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🌧️ Thailand Rainfall Forecast Dashboard (HII API)</h1>
+    </header>
+
+    <div class="dashboard-container">
+        <!-- Left Column: Map -->
+        <div class="card map-section">
+            <div id="map-loading" class="loading-overlay">
+                <div class="spinner"></div>
+                <div>กำลังโหลดข้อมูลพยากรณ์และแผนที่...</div>
+            </div>
+            <div id="map"></div>
+        </div>
+
+        <!-- Right Column: Line Chart -->
+        <div class="card chart-section">
+            <div class="chart-header">
+                <h2 id="chart-title">ปริมาณฝนพยากรณ์รายเดือน</h2>
+                <p id="chart-subtitle">คลิกเลือกจังหวัดบนแผนที่ด้านซ้ายเพื่อดูแนวโน้มปริมาณฝน</p>
+            </div>
+            <div class="chart-container-inner" style="flex: 2; margin-bottom: 2rem;">
+                <div id="empty-state">
+                    <svg style="width:48px;height:48px;margin:0 auto 12px;color:#94a3b8;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
+                    <br>
+                    👈 กรุณาคลิกเลือกจังหวัดบนแผนที่
+                </div>
+                <canvas id="rainChart" class="hidden"></canvas>
+            </div>
+            
+            <div class="data-table-container">
+                <h3 style="font-size: 1.1rem; margin-bottom: 1rem; color: var(--text-main);">ตารางข้อมูลดิบ</h3>
+                <div class="table-responsive">
+                    <table id="raw-data-table">
+                        <thead>
+                            <tr>
+                                <th>ช่วงเวลา</th>
+                                <th>ปี</th>
+                                <th>เดือน</th>
+                                <th>ปริมาณฝน (มม.)</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="raw-data-body">
+                            <tr>
+                                <td colspan="4" style="text-align:center;padding:1rem;">(คลิกจังหวัดเพื่อดูข้อมูล)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        // API Configuration - Using local PHP proxy to avoid CORS and solve Request Timeouts
+        const API_URL = 'proxy.php';
+        
+        // Github Raw Url for standard Thailand GeoJSON (approx. 77 provinces)
+        // If this URL breaks, there's a fallback mockup logic below
+        const GEOJSON_URL = 'https://raw.githubusercontent.com/apisit/thailand.json/master/thailand.json'; 
+
+        // Application State
+        const state = {
+            apiData: [],
+            provinceAverages: {},
+            mapRef: null,
+            geojsonLayer: null,
+            chartInstance: null,
+            selectedLayer: null
+        };
+
+        // Initialize App
+        async function init() {
+            try {
+                // Fetch data from both sources concurrently
+                const [apiRes, geoRes] = await Promise.all([
+                    fetch(API_URL),
+                    fetch(GEOJSON_URL)
+                ]);
+
+                if (!apiRes.ok) throw new Error("API response was not ok");
+                if (!geoRes.ok) throw new Error("GeoJSON response was not ok");
+
+                const apiJson = await apiRes.json();
+                let geoJsonData = await geoRes.json();
+
+                // Process API data
+                if (apiJson.success && apiJson.result && apiJson.result.records) {
+                    state.apiData = apiJson.result.records;
+                    calculateProvinceAverages();
+                }
+
+                const PROVINCE_MAP = {
+                  "Bangkok Metropolis": "กรุงเทพมหานคร", "Bangkok": "กรุงเทพมหานคร",
+                  "Samut Prakan": "จ.สมุทรปราการ", "Nonthaburi": "จ.นนทบุรี",
+                  "Pathum Thani": "จ.ปทุมธานี", "Phra Nakhon Si Ayutthaya": "จ.พระนครศรีอยุธยา",
+                  "Ang Thong": "จ.อ่างทอง", "Lop Buri": "จ.ลพบุรี", "Sing Buri": "จ.สิงห์บุรี",
+                  "Chai Nat": "จ.ชัยนาท", "Saraburi": "จ.สระบุรี", "Chon Buri": "จ.ชลบุรี", "Chonburi": "จ.ชลบุรี",
+                  "Rayong": "จ.ระยอง", "Chanthaburi": "จ.จันทบุรี", "Trat": "จ.ตราด",
+                  "Chachoengsao": "จ.ฉะเชิงเทรา", "Prachin Buri": "จ.ปราจีนบุรี", "Nakhon Nayok": "จ.นครนายก",
+                  "Sa Kaeo": "จ.สระแก้ว", "Nakhon Ratchasima": "จ.นครราชสีมา", "Buri Ram": "จ.บุรีรัมย์", "Buriram": "จ.บุรีรัมย์",
+                  "Surin": "จ.สุรินทร์", "Si Sa Ket": "จ.ศรีสะเกษ", "Sisaket": "จ.ศรีสะเกษ", "Ubon Ratchathani": "จ.อุบลราชธานี",
+                  "Yasothon": "จ.ยโสธร", "Chaiyaphum": "จ.ชัยภูมิ", "Amnat Charoen": "จ.อำนาจเจริญ",
+                  "Bueng Kan": "จ.บึงกาฬ", "Bung Kan": "จ.บึงกาฬ", "Nong Bua Lam Phu": "จ.หนองบัวลำภู",
+                  "Khon Kaen": "จ.ขอนแก่น", "Udon Thani": "จ.อุดรธานี", "Loei": "จ.เลย", "Nong Khai": "จ.หนองคาย",
+                  "Maha Sarakham": "จ.มหาสารคาม", "Roi Et": "จ.ร้อยเอ็ด", "Kalasin": "จ.กาฬสินธุ์",
+                  "Sakon Nakhon": "จ.สกลนคร", "Nakhon Phanom": "จ.นครพนม", "Mukdahan": "จ.มุกดาหาร",
+                  "Chiang Mai": "จ.เชียงใหม่", "Lamphun": "จ.ลำพูน", "Lampang": "จ.ลำปาง", "Uttaradit": "จ.อุตรดิตถ์",
+                  "Phrae": "จ.แพร่", "Nan": "จ.น่าน", "Phayao": "จ.พะเยา", "Chiang Rai": "จ.เชียงราย",
+                  "Mae Hong Son": "จ.แม่ฮ่องสอน", "Nakhon Sawan": "จ.นครสวรรค์", "Uthai Thani": "จ.อุทัยธานี",
+                  "Kamphaeng Phet": "จ.กำแพงเพชร", "Tak": "จ.ตาก", "Sukhothai": "จ.สุโขทัย",
+                  "Phitsanulok": "จ.พิษณุโลก", "Phichit": "จ.พิจิตร", "Phetchabun": "จ.เพชรบูรณ์",
+                  "Ratchaburi": "จ.ราชบุรี", "Kanchanaburi": "จ.กาญจนบุรี", "Suphan Buri": "จ.สุพรรณบุรี", "Suphanburi": "จ.สุพรรณบุรี",
+                  "Nakhon Pathom": "จ.นครปฐม", "Samut Sakhon": "จ.สมุทรสาคร", "Samut Songkhram": "จ.สมุทรสงคราม",
+                  "Phetchaburi": "จ.เพชรบุรี", "Prachuap Khiri Khan": "จ.ประจวบคีรีขันธ์", "Nakhon Si Thammarat": "จ.นครศรีธรรมราช",
+                  "Krabi": "จ.กระบี่", "Phangnga": "จ.พังงา", "Phang Nga": "จ.พังงา", "Phuket": "จ.ภูเก็ต",
+                  "Surat Thani": "จ.สุราษฎร์ธานี", "Ranong": "จ.ระนอง", "Chumphon": "จ.ชุมพร", "Songkhla": "จ.สงขลา",
+                  "Satun": "จ.สตูล", "Trang": "จ.ตรัง", "Phatthalung": "จ.พัทลุง", "Pattani": "จ.ปัตตานี",
+                  "Yala": "จ.ยะลา", "Narathiwat": "จ.นราธิวาส"
+                };
+
+                // Normalize GeoJSON properties to contain 'Province_NameTH' to match API
+                geoJsonData.features = geoJsonData.features.map(feature => {
+                    let englishName = feature.properties.name || feature.properties.NAME_1 || "";
+                    let thaiName = PROVINCE_MAP[englishName] || englishName;
+                    
+                    feature.properties.Province_NameTH = thaiName; 
+                    return feature;
+                });
+
+                // Render Map
+                initMap(geoJsonData);
+                
+                // Remove Loading Screen
+                document.getElementById('map-loading').classList.add('hidden');
+
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                const loadingEl = document.getElementById('map-loading');
+                loadingEl.innerHTML = `<span style="color:#ef4444;">⚠️ เกิดข้อผิดพลาดในการโหลดข้อมูล</span><br><span style="font-size:0.9rem">${error.message}</span>`;
+            }
+        }
+
+        // Calculate average rainfall across the entire dataset for each province
+        function calculateProvinceAverages() {
+            const provinceTotals = {};
+            const provinceCounts = {};
+
+            state.apiData.forEach(record => {
+                const provName = record.Province_NameTH;
+                if (!provName) return;
+
+                // Dynamically find the rainfall key (handle potential typos in API like Rainfall.mm. vs Rainfall(mm))
+                const rainKey = Object.keys(record).find(k => k.toLowerCase().includes('rain'));
+                const rainValue = parseFloat(record[rainKey]) || 0;
+
+                if (!provinceTotals[provName]) {
+                    provinceTotals[provName] = 0;
+                    provinceCounts[provName] = 0;
+                }
+                provinceTotals[provName] += rainValue;
+                provinceCounts[provName] += 1;
+            });
+
+            // Calculate final averages
+            for (const prov in provinceTotals) {
+                state.provinceAverages[prov] = provinceTotals[prov] / provinceCounts[prov];
+            }
+        }
+
+        // Determine Choropleth Map Color based on average rainfall
+        // Darker blue = higher rainfall
+        function getColor(value) {
+            return value > 250 ? '#08306b' :
+                   value > 200 ? '#08519c' :
+                   value > 150 ? '#2171b5' :
+                   value > 100 ? '#4292c6' :
+                   value > 50  ? '#6baed6' :
+                   value > 25  ? '#9ecae1' :
+                   value > 0   ? '#c6dbef' :
+                                 '#f8fafc'; // Default minimal precipitation
+        }
+
+        // Initialize Map
+        function initMap(geoJsonData) {
+            // Set view centered on Thailand
+            state.mapRef = L.map('map').setView([13.736717, 100.523186], 6);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap &copy; CARTO'
+            }).addTo(state.mapRef);
+
+            // Styling for each province feature
+            function style(feature) {
+                let provName = feature.properties.Province_NameTH;
+                let avgRain = state.provinceAverages[provName];
+
+                // If exact match fails, try substring matching as fallback
+                if (avgRain === undefined) {
+                    const matchingKey = Object.keys(state.provinceAverages).find(k => 
+                        (provName && k.includes(provName)) || (provName && provName.includes(k))
+                    );
+                    if (matchingKey) {
+                        feature.properties.Province_NameTH = matchingKey; // Update inner data
+                        avgRain = state.provinceAverages[matchingKey];
+                    } else {
+                        avgRain = 0;
+                    }
+                }
+
+                return {
+                    fillColor: getColor(avgRain),
+                    weight: 1.5,
+                    opacity: 1,
+                    color: '#ffffff', // White borders
+                    fillOpacity: 0.85
+                };
+            }
+
+            // Hover effects
+            function highlightFeature(e) {
+                const layer = e.target;
+                
+                // Prevent overriding the currently selected province styling
+                if (state.selectedLayer === layer) return;
+
+                layer.setStyle({
+                    weight: 2,
+                    color: '#f59e0b', // Amber highlight
+                    fillOpacity: 0.95
+                });
+                
+                if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                    layer.bringToFront();
+                }
+                // Ensure selected layer remains on top
+                if (state.selectedLayer) {
+                    state.selectedLayer.bringToFront();
+                }
+            }
+
+            function resetHighlight(e) {
+                const layer = e.target;
+                if (state.selectedLayer === layer) return;
+                state.geojsonLayer.resetStyle(layer);
+            }
+
+            // Click behavior
+            function selectFeature(e) {
+                // Completely reset map layer styles safely
+                if (state.geojsonLayer) {
+                    state.geojsonLayer.eachLayer(function (l) {
+                        state.geojsonLayer.resetStyle(l);
+                    });
+                }
+                
+                const layer = e.target;
+                state.selectedLayer = layer;
+
+                layer.setStyle({
+                    weight: 3,
+                    color: '#ef4444', // Red border for selected
+                    fillOpacity: 1
+                });
+                
+                if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                    layer.bringToFront();
+                }
+
+                const provName = layer.feature.properties.Province_NameTH;
+                updateChart(provName);
+            }
+
+            function onEachFeature(feature, layer) {
+                const provName = feature.properties.Province_NameTH || "ไม่ทราบชื่อ";
+                const avgRain = state.provinceAverages[provName] ? state.provinceAverages[provName].toFixed(1) : 0;
+                
+                layer.bindTooltip(`
+                    <div style="text-align:center;">
+                        <strong style="font-size:1.1rem">${provName}</strong><br>
+                        <span style="color:#64748b;">ปริมาณฝนเฉลี่ย:</span> <span style="color:#0f172a;font-weight:600;">${avgRain} มม.</span>
+                    </div>
+                `, {
+                    direction: 'top',
+                    sticky: true,
+                    className: 'custom-tooltip' // Can be styled via CSS if needed
+                });
+
+                layer.on({
+                    mouseover: highlightFeature,
+                    mouseout: resetHighlight,
+                    click: selectFeature
+                });
+            }
+
+            // Add GeoJSON to map
+            state.geojsonLayer = L.geoJson(geoJsonData, {
+                style: style,
+                onEachFeature: onEachFeature
+            }).addTo(state.mapRef);
+
+            // Create and add Map Legend
+            const legend = L.control({position: 'bottomright'});
+            legend.onAdd = function (map) {
+                const div = L.DomUtil.create('div', 'info legend');
+                const grades = [0, 25, 50, 100, 150, 200, 250];
+                
+                div.innerHTML = '<h4>ระดับฝน (มม.)</h4>';
+                
+                for (let i = 0; i < grades.length; i++) {
+                    div.innerHTML +=
+                        '<i style="background:' + getColor(grades[i] + 1) + '"></i> ' +
+                        grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+                }
+                return div;
+            };
+            legend.addTo(state.mapRef);
+        }
+
+        // Add a plugin for drawing a vertical line for current time
+        const currentMonthLinePlugin = {
+            id: 'currentMonthLine',
+            beforeDraw: (chart) => {
+                if (chart.config.options.plugins.currentMonthLine && chart.config.options.plugins.currentMonthLine.monthIndex !== undefined) {
+                    const ctx = chart.ctx;
+                    const xAxis = chart.scales['x'];
+                    const yAxis = chart.scales['y'];
+                    const index = chart.config.options.plugins.currentMonthLine.monthIndex;
+
+                    if (index >= 0 && index < xAxis.ticks.length) {
+                        const x = xAxis.getPixelForTick(index);
+                        
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.moveTo(x, yAxis.top);
+                        ctx.lineTo(x, yAxis.bottom);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = '#ef4444'; // Red line for current time
+                        ctx.setLineDash([5, 5]);
+                        ctx.stroke();
+                        
+                        // Draw "ปัจจุบัน" label
+                        ctx.fillStyle = '#ef4444';
+                        ctx.font = '500 12px "Noto Sans Thai"';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('ปัจจุบัน', x, yAxis.top - 10);
+                        
+                        ctx.restore();
+                    }
+                }
+            }
+        };
+        Chart.register(currentMonthLinePlugin);
+
+        // Draw / Update Chart on the right panel
+        function updateChart(provinceName) {
+            // UI setup
+            document.getElementById('empty-state').classList.add('hidden');
+            
+            document.getElementById('chart-title').innerText = `แนวโน้มปริมาณฝน: ${provinceName}`;
+            
+            // Filter Data for selected province
+            let provData = state.apiData.filter(d => d.Province_NameTH === provinceName);
+            
+            if (provData.length === 0) {
+                document.getElementById('chart-subtitle').innerText = 'ไม่พบข้อมูลแนวโน้มรายเดือนสำหรับจังหวัดนี้';
+                if (state.chartInstance) {
+                    state.chartInstance.destroy();
+                    state.chartInstance = null;
+                }
+                document.getElementById('raw-data-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;">ไม่พบข้อมูล</td></tr>';
+                return;
+            } else {
+                document.getElementById('chart-subtitle').innerText = 'ปริมาณฝน (มิลลิเมตร) แบ่งตามอดีตและอนาคต';
+            }
+
+            // Sort data chronologically (year ascending, month ascending)
+            provData.sort((a, b) => {
+                let yearA = parseInt(a.Forecast_Year || a.year) || 0;
+                let monthA = parseInt(a.Forecast_Month || a.Foreast_Month || a.month) || 0;
+                
+                let yearB = parseInt(b.Forecast_Year || b.year) || 0;
+                let monthB = parseInt(b.Forecast_Month || b.Foreast_Month || b.month) || 0;
+
+                if (yearA !== yearB) return yearA - yearB;
+                return monthA - monthB;
+            });
+
+            // Map variables for chart consumption
+            const monthNames = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+            
+            // Determine Current Date to split Past/Future
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth() + 1; // 1-12
+            
+            let currentMonthIndex = -1; // For drawing the vertical line
+            
+            const labels = [];
+            const dataPast = [];
+            const dataFuture = [];
+            
+            let rawDataHTML = '';
+
+            provData.forEach((d, index) => {
+                let mObj = parseInt(d.Forecast_Month || d.Foreast_Month || d.month) || 1;
+                let yObj = parseInt(d.Forecast_Year || d.year);
+                
+                let label = `${monthNames[mObj - 1] || mObj} ${yObj}`;
+                labels.push(label);
+                
+                let rainKey = Object.keys(d).find(k => k.toLowerCase().includes('rain'));
+                let rainVal = parseFloat(d[rainKey]) || 0;
+                
+                // Determine if this data point is Past or Future (including current month as future/current)
+                let isPast = false;
+                if (yObj < currentYear) {
+                    isPast = true;
+                } else if (yObj === currentYear && mObj < currentMonth) {
+                    isPast = true;
+                }
+                
+                // Detect exact current month match to draw line
+                if (yObj === currentYear && mObj === currentMonth) {
+                    currentMonthIndex = index;
+                }
+
+                // If it's the exact boundary point, we need to push it to BOTH arrays so the line connects seamlessly
+                if (isPast) {
+                    dataPast.push(rainVal);
+                    // If the NEXT point is future, we need this point in the future array too (with 'null' padding before) to connect
+                    let nextIsFuture = false;
+                    if (index + 1 < provData.length) {
+                        let ny = parseInt(provData[index+1].Forecast_Year || provData[index+1].year);
+                        let nm = parseInt(provData[index+1].Forecast_Month || provData[index+1].Foreast_Month || provData[index+1].month);
+                        if (ny > currentYear || (ny === currentYear && nm >= currentMonth)) nextIsFuture = true;
+                    }
+                    
+                    if (nextIsFuture) {
+                        dataFuture.push(rainVal); // Connecting dot
+                    } else {
+                        dataFuture.push(null);
+                    }
+                } else {
+                    dataPast.push(null);
+                    dataFuture.push(rainVal);
+                }
+                
+                // Build Raw Data Table row with badges
+                let badgeHTML = isPast 
+                    ? '<span class="badge badge-past">ข้อมูลอดีต</span>' 
+                    : '<span class="badge badge-future">ข้อมูลพยากรณ์</span>';
+
+                rawDataHTML += `
+                    <tr>
+                        <td style="font-weight: 500;">${label}</td>
+                        <td style="color: var(--text-muted);">${yObj}</td>
+                        <td style="color: var(--text-muted);">${mObj}</td>
+                        <td style="font-weight:600; color:${isPast ? '#64748b' : '#2563eb'}">${rainVal.toFixed(2)}</td>
+                        <td>${badgeHTML}</td>
+                    </tr>
+                `;
+            });
+
+            // Update HTML Table
+            document.getElementById('raw-data-body').innerHTML = rawDataHTML;
+
+            // Re-render chart logic securely
+            if (state.chartInstance) {
+                state.chartInstance.destroy(); // Clear old chart
+                state.chartInstance = null;
+            }
+
+            // Always recreate canvas to prevent lingering event problems
+            const container = document.querySelector('.chart-container-inner');
+            const oldCanvas = document.getElementById('rainChart');
+            if (oldCanvas) oldCanvas.remove();
+            
+            const newCanvas = document.createElement('canvas');
+            newCanvas.id = 'rainChart';
+            container.appendChild(newCanvas);
+
+            const ctx = newCanvas.getContext('2d');
+
+            state.chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'ข้อมูลในอดีต',
+                            data: dataPast,
+                            borderColor: '#64748b',   // Slate gray for past
+                            backgroundColor: 'rgba(100, 116, 139, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],       // Dashed line
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#64748b',
+                            pointRadius: 3,
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'แนวโน้มการพยากรณ์',
+                            data: dataFuture,
+                            borderColor: '#2563eb',   // Bright blue for future
+                            backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                            borderWidth: 3,
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#1d4ed8',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            fill: true,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            top: 20 // Space for the "ปัจจุบัน" label
+                        }
+                    },
+                    plugins: {
+                        legend: { 
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                font: { family: 'Noto Sans Thai' }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleFont: { family: 'Noto Sans Thai', size: 14 },
+                            bodyFont: { family: 'Noto Sans Thai', size: 13 },
+                            padding: 10,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.parsed.y !== null) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} มม.`;
+                                    }
+                                    return null;
+                                }
+                            }
+                        },
+                        currentMonthLine: {
+                            monthIndex: currentMonthIndex
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e2e8f0',
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                font: { family: 'Inter' }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                font: { family: 'Noto Sans Thai' },
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Boot
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
