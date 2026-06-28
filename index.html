@@ -194,7 +194,7 @@
             display: none !important;
         }
         
-        canvas {
+        #rainChart {
             width: 100% !important;
             height: 100% !important;
         }
@@ -332,17 +332,22 @@
 
         <!-- Right Column: Line Chart -->
         <div class="card chart-section">
-            <div class="chart-header">
-                <h2 id="chart-title">ปริมาณฝนพยากรณ์รายเดือน</h2>
-                <p id="chart-subtitle">คลิกเลือกจังหวัดบนแผนที่ด้านซ้ายเพื่อดูแนวโน้มปริมาณฝน</p>
+            <div class="chart-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;">
+                <div>
+                    <h2 id="chart-title">ปริมาณฝนพยากรณ์รายเดือน</h2>
+                    <p id="chart-subtitle">คลิกเลือกจังหวัดบนแผนที่ด้านซ้ายเพื่อดูแนวโน้มปริมาณฝน</p>
+                </div>
+                <button id="reset-btn" onclick="resetView()" style="display:none; align-items:center; gap:6px; padding:8px 16px; background:#f1f5f9; border:1px solid var(--border-color); border-radius:8px; font-size:0.9rem; font-family:inherit; color:var(--text-muted); cursor:pointer; white-space:nowrap; transition:background 0.15s ease;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                    ↺ รีเซ็ต
+                </button>
             </div>
-            <div class="chart-container-inner" style="flex: 2; margin-bottom: 2rem;">
+            <div class="chart-container-inner" style="flex: 2; margin-bottom: 2rem; min-height: 300px;">
                 <div id="empty-state">
                     <svg style="width:48px;height:48px;margin:0 auto 12px;color:#94a3b8;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
                     <br>
                     👈 กรุณาคลิกเลือกจังหวัดบนแผนที่
                 </div>
-                <canvas id="rainChart" class="hidden"></canvas>
+                <canvas id="rainChart" style="display:none;"></canvas>
             </div>
             
             <div class="data-table-container">
@@ -571,6 +576,9 @@
 
             // Click behavior
             function selectFeature(e) {
+                // Reset chart/UI first before loading new province
+                resetView(true);
+
                 // Completely reset map layer styles safely
                 if (state.geojsonLayer) {
                     state.geojsonLayer.eachLayer(function (l) {
@@ -592,7 +600,11 @@
                 }
 
                 const provName = layer.feature.properties.Province_NameTH;
-                updateChart(provName);
+
+                // Delay to allow reset to fully complete before drawing new chart
+                setTimeout(() => {
+                    updateChart(provName);
+                }, 100);
             }
 
             function onEachFeature(feature, layer) {
@@ -789,22 +801,19 @@
             // Update HTML Table
             document.getElementById('raw-data-body').innerHTML = rawDataHTML;
 
-            // Re-render chart logic securely
+            // Destroy old chart instance cleanly
             if (state.chartInstance) {
-                state.chartInstance.destroy(); // Clear old chart
+                state.chartInstance.destroy();
                 state.chartInstance = null;
             }
 
-            // Always recreate canvas to prevent lingering event problems
-            const container = document.querySelector('.chart-container-inner');
-            const oldCanvas = document.getElementById('rainChart');
-            if (oldCanvas) oldCanvas.remove();
-            
-            const newCanvas = document.createElement('canvas');
-            newCanvas.id = 'rainChart';
-            container.appendChild(newCanvas);
+            // Show canvas, hide empty-state
+            document.getElementById('empty-state').style.display = 'none';
+            const canvas = document.getElementById('rainChart');
+            canvas.style.display = 'block';
+            document.getElementById('reset-btn').style.display = 'flex';
 
-            const ctx = newCanvas.getContext('2d');
+            const ctx = canvas.getContext('2d');
 
             state.chartInstance = new Chart(ctx, {
                 type: 'line',
@@ -901,6 +910,30 @@
                     }
                 }
             });
+        }
+
+        // Reset view back to initial state
+        // skipMapReset = true when called from selectFeature (map handles its own reset)
+        function resetView(skipMapReset = false) {
+            // Destroy chart
+            if (state.chartInstance) {
+                state.chartInstance.destroy();
+                state.chartInstance = null;
+            }
+
+            // Reset selected province style on map (skip if selectFeature will handle it)
+            if (!skipMapReset && state.selectedLayer && state.geojsonLayer) {
+                state.geojsonLayer.resetStyle(state.selectedLayer);
+                state.selectedLayer = null;
+            }
+
+            // Reset UI
+            document.getElementById('chart-title').innerText = 'ปริมาณฝนพยากรณ์รายเดือน';
+            document.getElementById('chart-subtitle').innerText = 'คลิกเลือกจังหวัดบนแผนที่ด้านซ้ายเพื่อดูแนวโน้มปริมาณฝน';
+            document.getElementById('empty-state').style.display = '';
+            document.getElementById('rainChart').style.display = 'none';
+            document.getElementById('raw-data-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;">(คลิกจังหวัดเพื่อดูข้อมูล)</td></tr>';
+            document.getElementById('reset-btn').style.display = 'none';
         }
 
         // Boot
